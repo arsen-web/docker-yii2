@@ -1,0 +1,38 @@
+version: '3.7'
+
+services:
+  geteway:
+    build:
+      context: ./gateway/docker/dev/nginx
+    restart: always
+    ports:
+      - '8001:8001'
+      - '8002:8002'
+    depends_on:
+      - frontend-nginx
+      - backend-nginx
+
+  frontend-nginx:
+    build:
+      context: ./frontend/docker/dev/nginx
+    restart: always
+    volumes:
+      - ./:/app
+    depends_on:
+      - php-fpm
+
+  backend-nginx:
+    build:
+      context: ./backend/docker/dev/nginx
+    restart: always
+    volumes:
+      - ./:/app
+    depends_on:
+      - php-fpm
+
+  php-fpm:
+    build:
+      context: ./docker/dev/php-fpm
+    restart: always
+    volumes:
+      - ./:/app
