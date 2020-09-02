@@ -3,7 +3,7 @@ version: '3.7'
 services:
   geteway:
     build:
-      context: ./docker/gateway/docker/dev/nginx
+      context: ./docker/dev/gateway/nginx
     restart: always
     ports:
       - '8001:8001'
@@ -14,31 +14,53 @@ services:
 
   frontend-nginx:
     build:
-      context: ./docker/frontend/dev/nginx
+      context: ./docker/dev/frontend/nginx
     restart: always
     volumes:
       - ./:/app
     depends_on:
-      - php-fpm
+      - frontend-php-fpm
+      - postgres
+
+  frontend-php-fpm:
+    build:
+      context: ./docker/dev/frontend/php-fpm
+    restart: always
+    volumes:
+      - ./:/app
 
   backend-nginx:
     build:
-      context: ./docker/backend/dev/nginx
+      context: ./docker/dev/backend/nginx
     restart: always
     volumes:
       - ./:/app
     depends_on:
-      - php-fpm
+      - backend-php-fpm
+      - backend-php-cli
+      - postgres
 
-  php-fpm:
+  backend-php-fpm:
     build:
-      context: ./docker/common/dev/php-fpm
+      context: ./docker/dev/backend/php-fpm
     restart: always
     volumes:
       - ./:/app
 
-  php-cli:
+  backend-php-cli:
     build:
-      context: ./docker/common/dev/php-cli
+      context: ./docker/dev/backend/php-cli
     volumes:
       - ./:/app
+
+  postgres:
+    image: postgres:12.4-alpine
+    restart: always
+    environment:
+      POSTGRES_USER: app
+      POSTGRES_PASSWORD: secret
+      POSTGRES_DB: app
+    volumes:
+      - ./docker/dev/postgres/data:/var/lib/postgresql/data
+    ports:
+      - "54321:5432"
