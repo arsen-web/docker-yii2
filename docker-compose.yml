@@ -37,19 +37,12 @@ services:
       - ./:/app
     depends_on:
       - backend-php-fpm
-      - backend-php-cli
       - postgres
 
   backend-php-fpm:
     build:
       context: ./docker/dev/backend/php-fpm
     restart: always
-    volumes:
-      - ./:/app
-
-  backend-php-cli:
-    build:
-      context: ./docker/dev/backend/php-cli
     volumes:
       - ./:/app
 

@@ -18,3 +18,9 @@ docker-build:
 
 docker-init:
 	make docker-down-clear docker-pull docker-build docker-up
+
+docker-login:
+	docker-compose exec ${name} sh
+
+backend-php-cli:
+	docker-compose run backend-php-cli sh
