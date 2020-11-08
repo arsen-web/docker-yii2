@@ -2,16 +2,25 @@
 
 namespace console\excel\reader\base;
 
+use console\excel\helpers\FileHelper;
 use Generator;
 use InvalidArgumentException;
 use console\excel\storage\StorageCsvFile;
+use LogicException;
 use PhpOffice\PhpSpreadsheet\Reader\Xlsx;
 use PhpOffice\PhpSpreadsheet\Writer\Csv;
 use Throwable;
 
 abstract class BaseExcelReader
 {
+    /**
+     * @var string
+     */
     public const TYPE_XLSX = '.xlsx';
+
+    /**
+     * @var string
+     */
     public const TYPE_CSV = '.csv';
 
     /**
@@ -22,12 +31,7 @@ abstract class BaseExcelReader
     /**
      * @var array
      */
-    protected $ignoredFileNameInDir;
-
-    /**
-     * @var array
-     */
-    protected $columnsMap;
+    protected $ignoreFileNamesInDir;
 
     /**
      * @var array
@@ -39,17 +43,14 @@ abstract class BaseExcelReader
      */
     protected $storageCollection = [];
 
+    /**
+     * @var bool
+     */
+    protected static $isReadHeaders = true;
+
     public function __construct()
     {
-        $this->setIgnoredFileNameInDir();
-        $this->setColumnsMap();
-    }
-
-    /**
-     * @return void
-     */
-    protected function beforeRead(): void
-    {
+        $this->setIgnoreFileNamesInDir();
     }
 
     /**
@@ -65,11 +66,10 @@ abstract class BaseExcelReader
                 $fhi = fopen($fileName, 'r');
 
                 $storage->setFileName($fileName);
-                $isHeaders = true;
                 $lastIndex = 0;
 
-                while(($row = fgetcsv($fhi, 0, ";")) !== false) {
-                    if($isHeaders) {
+                while(($row = fgetcsv($fhi, 0, ';')) !== false) {
+                    if(static::$isReadHeaders) {
                         foreach($row as $index => $col) {
                             if(!empty($col)) {
                                 $lastIndex = $index + 1;
@@ -85,7 +85,7 @@ abstract class BaseExcelReader
 
                         $storage->setRowsIdx($indexes);
 
-                        $isHeaders = false;
+                        static::$isReadHeaders = false;
                         continue;
                     }
                     $row = array_slice($row, 0, $lastIndex);
@@ -116,20 +116,12 @@ abstract class BaseExcelReader
     }
 
     /**
-     * @return void
-     */
-    protected function afterRead(): void
-    {
-        $this->dropTempFile();
-    }
-
-    /**
      * @param string $filePath
      * @return self
      */
     public function setPathToXlsxFile(string $filePath): self
     {
-        $this->validateFilePath($filePath);
+        FileHelper::validateFilePath($filePath);
 
         if(!preg_match('/\.xlsx$/', $filePath)) {
             throw new \yii\base\InvalidArgumentException("Файл `{$filePath}` не сооветствует типу .xlsx");
@@ -140,8 +132,7 @@ abstract class BaseExcelReader
 
         $csvWriter = new Csv($xlsxSpreadsheetReader);
         $csvWriter->setDelimiter(';');
-        $filePath = $this->changeTypeFile($filePath, static::TYPE_CSV);
-        $filePath = $this->addPrefix($filePath);
+        $filePath = FileHelper::changeTypeFile($filePath, static::TYPE_CSV, $this->prefixFileName);
         $csvWriter->save($filePath);
 
         $this->fileCollection[] = $filePath;
@@ -155,13 +146,13 @@ abstract class BaseExcelReader
      */
     public function setPathToCsvFile(string $filePath): self
     {
-        $this->validateFilePath($filePath);
+        FileHelper::validateFilePath($filePath);
 
         if(!preg_match('/\.csv$/', $filePath)) {
             throw new InvalidArgumentException("Файл `{$filePath}` не сооветствует типу .csv");
         }
 
-        $filePath = $this->addPrefix($filePath);
+        $filePath = FileHelper::addPrefix($filePath, $this->prefixFileName);
 
         $this->fileCollection[] = $filePath;
 
@@ -174,11 +165,9 @@ abstract class BaseExcelReader
      */
     public function setPathToFile(string $filePath): self
     {
-        $this->validateFilePath($filePath);
+        FileHelper::validateFilePath($filePath);
 
-        $type = $this->getTypeFile($filePath);
-
-        switch($type) {
+        switch(FileHelper::getTypeFile($filePath)) {
             case self::TYPE_XLSX:
                 $this->setPathToXlsxFile($filePath);
                 break;
@@ -198,11 +187,11 @@ abstract class BaseExcelReader
      */
     public function setPathToDirectory(string $directoryPath): self
     {
-        $this->validateDirectoryPath($directoryPath);
+        FileHelper::validateDirectoryPath($directoryPath);
 
         $dh = opendir($directoryPath);
         while($fileName = readdir($dh)) {
-            if(in_array($fileName, $this->ignoredFileNameInDir)) {
+            if(in_array($fileName, $this->ignoreFileNamesInDir)) {
                 continue;
             }
 
@@ -218,21 +207,47 @@ abstract class BaseExcelReader
     abstract protected function getColumnsMap(): array;
 
     /**
+     * @return void
+     */
+    protected function beforeRead(): void
+    {
+    }
+
+    /**
+     * @return void
+     */
+    protected function afterRead(): void
+    {
+        $this->dropTempFile();
+    }
+
+    /**
      * @param array $headers
      * @return array
      */
     protected function generateIndexes(array $headers): array
     {
+        $columnsMap = $this->getColumnsMap();
+
+        if(empty($columnsMap)){
+            throw new LogicException('Маппинг колонок для записи индексов пустой');
+        }
+
         $indexes = [];
         foreach($headers as $headerIndex => $header) {
             $header = mb_strtolower(trim($header, ' '));
-            foreach($this->columnsMap as $column => $options) {
+
+            foreach($columnsMap as $column => $options) {
+
                 foreach($options as $option) {
                     $option = mb_strtolower(trim($option, ' '));
+
                     if($header === $option) {
                         $indexes[$column] = $headerIndex;
                     }
+
                 }
+
             }
         }
 
@@ -242,7 +257,7 @@ abstract class BaseExcelReader
     /**
      * @return array
      */
-    protected function getIgnoredFileNameInDir(): array
+    protected function getIgnoreFileNamesInDir(): array
     {
         return ['.', '..', '.gitkeep', '.DS_Store'];
     }
@@ -250,104 +265,9 @@ abstract class BaseExcelReader
     /**
      * @return void
      */
-    protected function setIgnoredFileNameInDir(): void
+    protected function setIgnoreFileNamesInDir(): void
     {
-        $this->ignoredFileNameInDir = $this->getIgnoredFileNameInDir();
-    }
-
-    /**
-     * @return void
-     */
-    protected function setColumnsMap(): void
-    {
-        $this->columnsMap = $this->getColumnsMap();
-    }
-
-    /**
-     * @param string $pathToDirectory
-     */
-    protected function validateDirectoryPath(string $pathToDirectory): void
-    {
-        if(empty($pathToDirectory)) {
-            throw new InvalidArgumentException('Директория не указана.');
-        }
-
-        if(!file_exists($pathToDirectory)) {
-            throw new InvalidArgumentException("Директория `{$pathToDirectory}` не существует.");
-        }
-
-        if(!is_dir($pathToDirectory)) {
-            throw new InvalidArgumentException('Вы указали не директорию.');
-        }
-    }
-
-    /**
-     * @param string $pathToFile
-     */
-    protected function validateFilePath(string $pathToFile): void
-    {
-        if(empty($pathToFile)) {
-            throw new InvalidArgumentException('Файл не указан.');
-        }
-
-        if(!file_exists($pathToFile)) {
-            throw new InvalidArgumentException("Файл `{$pathToFile}` не существует.");
-        }
-
-        if(!is_readable($pathToFile)) {
-            throw new InvalidArgumentException("Не удалось открыть файл `{$pathToFile}` для чтения.");
-        }
-
-        if(!is_file($pathToFile)) {
-            throw new InvalidArgumentException('Вы указали не файл.');
-        }
-    }
-
-    /**
-     * @param string $fileName
-     * @param string $type
-     * @return string
-     */
-    protected function changeTypeFile(string $fileName, string $type): string
-    {
-        $fileName = substr($fileName, 0, strrpos($fileName, '.'));
-
-        return "{$fileName}.{$type}";
-    }
-
-    /**
-     * @param string $fileName
-     * @return string
-     */
-    protected function getTypeFile(string $fileName): string
-    {
-        return substr($fileName, strrpos($fileName, '.'));
-    }
-
-    /**
-     * @param string $fileName
-     * @return string
-     */
-    protected function addPrefix(string $fileName): string
-    {
-        $fileName = explode('/', $fileName);
-        $fileName[] = "{$this->prefixFileName}_" . array_pop($fileName);
-        $fileName = implode('/', $fileName);
-
-        return $fileName;
-    }
-
-    /**
-     * @param array $array
-     * @return Generator
-     */
-    protected static function generator(array $array): Generator
-    {
-        if(is_iterable($array)) {
-            foreach($array as $item) {
-                yield $item;
-            }
-        }
+        $this->ignoreFileNamesInDir = $this->getIgnoreFileNamesInDir();
     }
 
     /**
@@ -360,6 +280,19 @@ abstract class BaseExcelReader
          */
         foreach(static::generator($this->fileCollection) as $file) {
             unlink($file);
+        }
+    }
+
+    /**
+     * @param array $array
+     * @return Generator
+     */
+    protected static function generator(array $array): Generator
+    {
+        if(is_iterable($array)) {
+            foreach($array as $item) {
+                yield $item;
+            }
         }
     }
 }
